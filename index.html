@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Se loger à Zurich : résidences WOKO et ETH Hönggerberg</title>
+<meta name="description" content="Carte interactive : temps de trajet en transports publics et à vélo vers l'ETH Hönggerberg, desserte, commerces et services autour des résidences WOKO de Zurich.">
+<meta name="theme-color" content="#0b3d6b">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --fg: #1f2933; --muted: #5b6770; --line: #d9dee3; --accent: #0b5cad; --accent-fg: #fff;
+    --card: rgba(255,255,255,.97); --ombre: 0 2px 10px rgba(0,0,0,.28); --rayon: 10px;
+    --haut-poignee: 46px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: var(--fg); background: #e8ecef; }
+  #map { position: absolute; inset: 0; }
+  .carte { background: var(--card); border-radius: var(--rayon); box-shadow: var(--ombre); }
+
+  /* Titre et thèmes */
+  #titre { position: absolute; z-index: 1000; top: max(12px, env(safe-area-inset-top)); left: 12px; padding: 8px 14px; max-width: 460px; }
+  #titre h1 { margin: 0; font-size: 15px; line-height: 1.25; }
+  #titre p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+  #themes { position: absolute; z-index: 1000; top: calc(max(12px, env(safe-area-inset-top)) + 62px); left: 12px; right: 372px;
+            display: flex; gap: 6px; flex-wrap: wrap; }
+  #themes button { font: inherit; font-size: 13px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px;
+                   background: var(--card); color: var(--fg); cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.2); white-space: nowrap; }
+  #themes button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid #f5a623; outline-offset: 2px; }
+
+  /* Panneau */
+  #panneau { position: absolute; z-index: 1000; top: 12px; right: 12px; bottom: 34px; width: 348px; display: flex; flex-direction: column; overflow: hidden; }
+  #poignee { display: none; }
+  #contenu { overflow-y: auto; padding: 10px 14px 14px; flex: 1; overscroll-behavior: contain; }
+  #contenu h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 14px 0 6px; }
+  #contenu h2:first-child { margin-top: 2px; }
+  .barre { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+  .lien { font: inherit; font-size: 12px; color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer; text-decoration: underline; }
+
+  #liste { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  #liste button { width: 100%; text-align: left; font: inherit; background: #fff; border: 1px solid var(--line); border-radius: 8px;
+                  padding: 7px 9px 7px 12px; cursor: pointer; border-left: 6px solid var(--c, #888); }
+  #liste button:hover { background: #f3f6f9; }
+  #liste .nom { font-weight: 600; display: block; }
+  #liste .detail { font-size: 12px; color: var(--muted); }
+
+  .couche { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+  .couche input { width: 18px; height: 18px; flex: none; }
+  .fonds label { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+
+  #legende .ligne { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: 12.5px; }
+  #legende .pastille { width: 14px; height: 14px; border-radius: 3px; flex: none; border: 1px solid rgba(0,0,0,.2); }
+  #legende .rond { border-radius: 50%; }
+  #legende .trait { height: 4px; width: 20px; border-radius: 2px; flex: none; border: 0; }
+  #legende h3 { font-size: 12.5px; margin: 8px 0 3px; }
+  #legende input { width: 16px; height: 16px; }
+  details { margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+  details summary { cursor: pointer; color: var(--fg); font-weight: 600; }
+  details p { margin: 6px 0; }
+
+  /* Popups et libellés */
+  .leaflet-popup-content { margin: 12px 14px; font-size: 13px; line-height: 1.4; min-width: 230px; }
+  .leaflet-popup-content h3 { margin: 0 0 2px; font-size: 15px; }
+  .leaflet-popup-content table { border-collapse: collapse; width: 100%; margin: 6px 0; }
+  .leaflet-popup-content td { padding: 2px 0; vertical-align: top; border-top: 1px solid #eef1f3; }
+  .leaflet-popup-content td:last-child { text-align: right; font-weight: 600; padding-left: 10px; }
+  .leaflet-popup-content .petit { color: var(--muted); font-size: 12px; }
+  .leaflet-popup-content a.btn { display: inline-block; margin-top: 6px; padding: 6px 10px; background: var(--accent); color: #fff; border-radius: 6px; text-decoration: none; }
+  .lbl { background: rgba(255,255,255,.9); border: 0; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.35); font-weight: 600; font-size: 11.5px; padding: 1px 5px; color: #14232f; }
+  .lbl::before { display: none; }
+  .lbl-lieu { background: transparent; box-shadow: none; color: #0d47a1; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; font-weight: 700; font-size: 12px; padding: 0; }
+  .lbl-kreis { background: transparent; box-shadow: none; color: #5d6870; text-shadow: 0 0 3px #fff, 0 0 3px #fff; font-size: 11px; font-weight: 600; padding: 0; }
+  body.zoom-bas .lbl { display: none; }
+  body.zoom-haut .lbl-kreis { display: none; }
+  #msg { position: absolute; z-index: 1100; left: 50%; transform: translateX(-50%); bottom: 60px; background: #7a1f1f; color: #fff; padding: 8px 14px; border-radius: 8px; display: none; max-width: 90vw; }
+  #chargement { position: absolute; z-index: 1100; left: 50%; top: 50%; transform: translate(-50%,-50%); padding: 8px 14px; border-radius: 8px; background: var(--card); box-shadow: var(--ombre); display: none; }
+  #minimap { position: absolute; z-index: 1000; left: 12px; bottom: 34px; width: 180px; height: 140px; border: 2px solid #8a949c; border-radius: 6px; box-shadow: var(--ombre); overflow: hidden; }
+  .leaflet-control-attribution { font-size: 11px; }
+  .leaflet-bottom.leaflet-left { margin-bottom: 0; }
+
+  /* Mobile : panneau en feuille basculante, commandes tactiles */
+  @media (max-width: 760px) {
+    #titre { right: 12px; max-width: none; padding: 6px 12px; }
+    #titre { right: auto; }
+    #titre h1 { font-size: 14px; }
+    #titre .opt, #titre p { display: none; }
+    body.zoom-bas .lbl, body.zoom-moyen .lbl { display: none; }
+    #themes { top: calc(max(12px, env(safe-area-inset-top)) + 40px); right: 0; left: 0; padding: 0 12px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+    #themes::-webkit-scrollbar { display: none; }
+    #themes button { padding: 8px 14px; font-size: 14px; }
+    #panneau { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 64vh; border-radius: 16px 16px 0 0;
+               transform: translateY(calc(100% - var(--haut-poignee))); transition: transform .25s ease; padding-bottom: env(safe-area-inset-bottom); }
+    body.ouvert #panneau { transform: none; }
+    #poignee { display: flex; align-items: center; justify-content: center; gap: 8px; height: var(--haut-poignee); width: 100%; flex: none;
+               border: 0; background: transparent; font: inherit; font-weight: 600; color: var(--fg); cursor: pointer; }
+    #poignee::before { content: ""; width: 36px; height: 4px; border-radius: 2px; background: #b6bec5; }
+    .leaflet-control-zoom { display: none; }
+    .leaflet-bottom { bottom: var(--haut-poignee); }
+    #minimap { display: none; }
+    .leaflet-popup-content { min-width: 0; }
+    #msg { bottom: 70px; }
+  }
+  @media (max-width: 1000px) { #minimap { display: none; } }
+  @media (min-width: 761px) and (max-width: 1100px) { #themes { right: 372px; } }
+  @media print { #panneau, #themes, #minimap { display: none; } }
+  noscript { position: absolute; z-index: 2000; top: 120px; left: 12px; padding: 12px; background: #fff; border-radius: 8px; }
+</style>
+</head>
+<body>
+<div id="map" role="application" aria-label="Carte interactive des résidences WOKO à Zurich"></div>
+<noscript>Cette carte demande JavaScript.</noscript>
+
+<header id="titre" class="carte">
+  <h1>Se loger à Zurich<span class="opt"> : résidences WOKO et ETH Hönggerberg</span></h1>
+  <p>Temps de trajet, desserte, commerces et services (horaire 2026)</p>
+</header>
+<nav id="themes" aria-label="Thèmes de la carte"></nav>
+<div id="minimap" aria-hidden="true"></div>
+<div id="chargement" role="status">Chargement…</div>
+<div id="msg" role="alert"></div>
+
+<aside id="panneau" class="carte" aria-label="Résidences, couches et légende">
+  <button id="poignee" type="button" aria-expanded="false" aria-controls="contenu">Résidences, couches et légende</button>
+  <div id="contenu">
+    <div class="barre"><h2>Résidences WOKO <span id="nbres" style="font-weight:400"></span></h2><button class="lien" id="recentrer" type="button">Recentrer</button></div>
+    <ul id="liste"></ul>
+
+    <h2>Légende</h2>
+    <div id="legende"></div>
+
+    <h2>Couches</h2>
+    <div id="couches"></div>
+
+    <h2>Fond de carte</h2>
+    <div id="fonds" class="fonds"></div>
+
+    <details>
+      <summary>Sources et méthode</summary>
+      <p><b>Trajets</b> : porte à porte (marche + transports publics), horaire théorique 2026 (mardi 17/11/2026, départs entre 7h30 et 8h30, valeur médiane), calculés avec r5py sur l'horaire suisse (opentransportdata.swiss) et le réseau de rues OpenStreetMap. Destination : ETH Hönggerberg (bâtiment HIL).</p>
+      <p><b>Vélo</b> : réseau OSM, relief non pris en compte (temps sous-estimés en montée). <b>À pied</b> : 4,8 km/h.</p>
+      <p><b>Isochrones</b> : polygones lissés et simplifiés (environ 25 m), à lire comme un ordre de grandeur.</p>
+      <p><b>Résidences, loyers</b> : WOKO, relevé du 27/10/2026, susceptibles de changer. Fiche officielle via le lien de chaque résidence.</p>
+      <p><b>Données</b> : © contributeurs OpenStreetMap (extrait BBBike du 24/10/2026), OFT (arrêts), opentransportdata.swiss (horaire), Ville de Zurich (limites), swisstopo (fonds). Réalisation : I. Hammouti, octobre 2026.</p>
+    </details>
+  </div>
+</aside>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- Constantes de style (identiques au projet QGIS) ---------- */
+  var ISO = {'0-10 min':'#1a9850','10-20 min':'#91cf60','20-30 min':'#d9ef8b','30-45 min':'#fee08b','45-60 min':'#fc8d59','60-90 min':'#d73027'};
+  var MARCHE = {'0-5 min':'#08519c','5-10 min':'#3182bd','10-15 min':'#9ecae1'};
+  var MODES = {train:'#1d3f6e', tram:'#e4572e', bus:'#7b5ea7', bateau:'#2a9d8f', funiculaire:'#8d6e63', telepherique:'#8d6e63'};
+  var MODES_LIB = {train:'Train (S-Bahn, grandes lignes)', tram:'Tram', bus:'Bus', bateau:'Bateau', funiculaire:'Funiculaire', telepherique:'Téléphérique'};
+  var POI_COUL = {supermarche:'#2e7d32', boulangerie:'#a1887f', pharmacie:'#00897b', medecin:'#c62828', banque_poste:'#f9a825',
+                  restauration:'#ef6c00', sport:'#1565c0', bibliotheque:'#6a1b9a', laverie:'#546e7a'};
+  var ROUTES = {autoroute:['#7a7a7a',3.2,'Autoroute, voie express'], principale:['#999999',2.2,'Route principale'], secondaire:['#aaaaaa',1.4,'Route secondaire']};
+  var EST_MOBILE = window.matchMedia('(max-width: 760px)');
+
+  var TRADUCTION = {
+    'Internet connection':'Internet', 'Common room':'salle commune', 'Laundry room':'buanderie',
+    'Garden/outdoor seating area':'jardin ou terrasse', 'Barbecue area':'espace barbecue', 'Elevator':'ascenseur',
+    'Music room':'salle de musique', 'Party room / bar':'salle de fête / bar', 'Bike room':'local à vélos', 'Roof terrace':'terrasse sur le toit'
+  };
+
+  /* ---------- Utilitaires ---------- */
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function nb(n) { return n == null ? '?' : Number(n).toLocaleString('fr-CH'); }
+  function min(n) { return n == null ? 'non calculé' : nb(n) + ' min'; }
+  function typologie(t) {
+    return esc(t).replace(/(\d+) x /g, '$1 × ').replace('1-room apartment/studio', 'studio').replace(/Flat share for (\d+) or more/g, 'colocation à $1 ou plus').replace(/Flat share for (\d+)/g, 'colocation à $1').replace(/;/g, ' ;');
+  }
+  function equipements(t) { return esc(t).split('; ').map(function (e) { return TRADUCTION[e.replace(/&#39;/g, "'")] || e; }).join(', '); }
+  function loyer(p) {
+    var a = p.loyer_min_chf, b = p.loyer_max_chf;
+    return a == null ? 'non indiqué' : (b && b > a ? nb(a) + ' à ' + nb(b) : nb(a)) + ' CHF par mois';
+  }
+  function couleurResidence(m) { return m == null ? '#888' : m <= 30 ? '#1a9850' : m <= 45 ? '#f28e2b' : '#d73027'; }
+  function nomCourt(nom) { return String(nom).replace(/\s*\(.*\)\s*/, ''); }
+  function message(t) { var m = $('#msg'); m.textContent = t; m.style.display = 'block'; setTimeout(function () { m.style.display = 'none'; }, 6000); }
+
+  /* ---------- Chargement des données (scripts data/*.js, compatible file:// et GitHub Pages) ---------- */
+  var promesses = {};
+  function charger(nom) {
+    if (!promesses[nom]) {
+      promesses[nom] = new Promise(function (ok, ko) {
+        if (window.DATA && window.DATA[nom]) { ok(window.DATA[nom]); return; }
+        var s = document.createElement('script');
+        s.src = 'data/' + nom + '.js';
+        s.onload = function () { ok(window.DATA[nom]); };
+        s.onerror = function () { delete promesses[nom]; ko(new Error('Chargement impossible : ' + nom)); };
+        document.head.appendChild(s);
+      });
+    }
+    return promesses[nom];
+  }
+
+  /* ---------- Carte, panes, fonds ---------- */
+  var map = L.map('map', { zoomControl: false, preferCanvas: true, minZoom: 9, maxZoom: 19, attributionControl: true, tap: true });
+  map.attributionControl.setPrefix('Réalisation : I. Hammouti');
+  L.control.zoom({ position: 'bottomleft', zoomInTitle: 'Zoom avant', zoomOutTitle: 'Zoom arrière' }).addTo(map);
+  L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);
+  [['eau',400],['iso',410],['fond',420],['tp',430],['poi',440],['res',460],['lieux',470]].forEach(function (p) { map.createPane(p[0]).style.zIndex = p[1]; });
+
+  var SWT = function (couche, ext) { return 'https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.' + couche + '/default/current/3857/{z}/{x}/{y}.' + ext; };
+  var AT_SWT = '© <a href="https://www.swisstopo.admin.ch" target="_blank" rel="noopener">swisstopo</a>';
+  var FONDS = {
+    clair:   { label:'Fond clair (Esri)', couche: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', { maxZoom:19, maxNativeZoom:16, attribution:'Fond : Esri, HERE, Garmin, © contributeurs OpenStreetMap' }) },
+    grise:   { label:'Carte grise swisstopo', couche: L.tileLayer(SWT('pixelkarte-grau','jpeg'),  { maxZoom:19, maxNativeZoom:18, attribution:AT_SWT }) },
+    couleur: { label:'Carte couleur swisstopo', couche: L.tileLayer(SWT('pixelkarte-farbe','jpeg'), { maxZoom:19, maxNativeZoom:18, attribution:AT_SWT }) },
+    photo:   { label:'Orthophoto swisstopo', couche: L.tileLayer(SWT('swissimage','jpeg'), { maxZoom:19, maxNativeZoom:18, attribution:AT_SWT }) },
+    osm:     { label:'OpenStreetMap', couche: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }) }
+  };
+  var relief = L.tileLayer(SWT('swissalti3d-reliefschattierung','png'), { maxZoom:19, maxNativeZoom:17, opacity:.35, pane:'tilePane' });
+  var fondActif = 'clair';
+  FONDS.clair.couche.addTo(map);
+
+  /* ---------- Définition des couches ---------- */
+  var COUCHES = {};      // id -> {label, data, build, legende, layer}
+  var marqueurs = {};    // nom de résidence -> marqueur
+  var focusMarche = null;
+
+  function popupResidence(p) {
+    var lignes = [
+      ['ETH Hönggerberg, en TP', min(p.eth_hongg_tp_min)], ['ETH Hönggerberg, à vélo', min(p.eth_hongg_velo_min)],
+      ['ETH Zentrum, en TP', min(p.eth_zentrum_tp_min)], ['Gare centrale (HB), en TP', min(p.zuerich_hb_tp_min)],
+      ['Aéroport, en TP', min(p.flughafen_tp_min)]
+    ].map(function (l) { return '<tr><td>' + l[0] + '</td><td>' + l[1] + '</td></tr>'; }).join('');
+    var prox = [
+      ['Arrêt le plus proche', esc(p.arret_proche) + (p.dist_arret_m != null ? ' (' + nb(p.dist_arret_m) + ' m)' : '')],
+      ['Lignes à cet arrêt', esc(p.lignes_arret) + (p.departs_jour_arret ? '<br><span class="petit">' + nb(p.departs_jour_arret) + ' départs par jour</span>' : '')],
+      ['Gare la plus proche', esc(p.gare_proche) + (p.dist_gare_m != null ? ' (' + nb(p.dist_gare_m) + ' m)' : '')],
+      ['Supermarché le plus proche', p.dist_supermarche_m != null ? nb(p.dist_supermarche_m) + ' m' : '?'],
+      ['Commerces et services à 500 m', nb(p.poi_500m)],
+      ['À moins de 10 min à pied', nb(p.marche10_poi) + (p.marche10_supermarche != null ? ' (dont ' + nb(p.marche10_supermarche) + ' supermarchés)' : '')]
+    ].map(function (l) { return '<tr><td>' + l[0] + '</td><td>' + l[1] + '</td></tr>'; }).join('');
+    return '<h3>' + esc(p.nom) + '</h3><div class="petit">' + esc(p.adresse) + ', ' + esc(p.npa_ville) + '</div>' +
+      '<p style="margin:6px 0 2px"><b>' + loyer(p) + '</b></p>' +
+      '<div class="petit">' + typologie(p.typologie) + '</div>' +
+      '<table>' + lignes + '</table><table>' + prox + '</table>' +
+      '<div class="petit">' + equipements(p.equipements) + '</div>' +
+      '<div class="petit" style="margin-top:4px">Trajets : horaire du mardi 17/11/2026, départs 7h30-8h30. Loyers WOKO au ' + esc(p.date_scrape) + '.</div>' +
+      (p.url_woko ? '<a class="btn" href="' + esc(p.url_woko) + '" target="_blank" rel="noopener">Fiche WOKO officielle</a>' : '');
+  }
+
+  function definirCouches() {
+    COUCHES.iso_tp = { label:'Trajet en TP vers Hönggerberg', data:'iso_hongg_tp', groupe:'Analyses',
+      build: function (d) { return L.geoJSON(d, { pane:'iso',
+        style: function (f) { return { color:'#fff', weight:.8, opacity:.8, fillColor:ISO[f.properties.classe], fillOpacity:.5 }; },
+        onEachFeature: function (f, l) { l.bindTooltip('En TP vers l\'ETH Hönggerberg : ' + f.properties.classe.replace('-', ' à '), { sticky:true }); } }); },
+      legende: function () { return legendeBandes('Trajet en TP vers Hönggerberg', ISO); } };
+    COUCHES.iso_velo = { label:'Trajet à vélo vers Hönggerberg', data:'iso_hongg_velo', groupe:'Analyses',
+      build: function (d) { return L.geoJSON(d, { pane:'iso',
+        style: function (f) { return { color:'#fff', weight:.8, opacity:.8, fillColor:ISO[f.properties.classe], fillOpacity:.5 }; },
+        onEachFeature: function (f, l) { l.bindTooltip('À vélo vers l\'ETH Hönggerberg : ' + f.properties.classe.replace('-', ' à '), { sticky:true }); } }); },
+      legende: function () { return legendeBandes('Trajet à vélo vers Hönggerberg (relief ignoré)', ISO); } };
+    COUCHES.iso_marche = { label:'À pied depuis chaque résidence', data:'iso_marche_residences', groupe:'Analyses',
+      build: function (d) {
+        var feats = d.features.slice().sort(function (a, b) { return b.properties.minutes_max - a.properties.minutes_max; });
+        return L.geoJSON({ type:'FeatureCollection', features:feats }, { pane:'iso',
+          style: function (f) { return styleMarche(f); },
+          onEachFeature: function (f, l) { l.bindTooltip(esc(f.properties.nom) + ' : ' + f.properties.classe.replace('-', ' à ') + ' à pied', { sticky:true }); } }); },
+      legende: function () { return legendeBandes('À pied depuis la résidence (4,8 km/h)', MARCHE); } };
+    COUCHES.troncons = { label:'Lignes de TP (passages par jour)', data:'troncons', groupe:'Réseaux',
+      build: function (d) {
+        var rang = { bateau:0, funiculaire:0, telepherique:0, bus:1, tram:2, train:3 };
+        var feats = d.features.slice().sort(function (a, b) { return (rang[a.properties.mode] - rang[b.properties.mode]) || (a.properties.passages_jour - b.properties.passages_jour); });
+        return L.geoJSON({ type:'FeatureCollection', features:feats }, { pane:'tp',
+          style: function (f) { var p = f.properties; return { color:MODES[p.mode] || '#555', weight:Math.min(7, .7 + Math.sqrt(p.passages_jour) / 8), opacity:.85, lineCap:'round' }; },
+          onEachFeature: function (f, l) { var p = f.properties;
+            l.bindTooltip('<b>' + esc(MODES_LIB[p.mode] || p.mode) + '</b> ' + esc(p.lignes) + '<br>' + esc(p.de) + ' → ' + esc(p.vers) + '<br>' + nb(p.passages_jour) + ' passages un jour de semaine', { sticky:true }); } }); },
+      legende: function () { return '<h3>Lignes de TP (épaisseur = passages par jour)</h3>' + Object.keys(MODES_LIB).filter(function (m) { return m !== 'telepherique'; }).map(function (m) {
+        return '<div class="ligne"><span class="pastille trait" style="background:' + MODES[m] + '"></span>' + MODES_LIB[m] + '</div>'; }).join(''); } };
+    COUCHES.arrets = { label:'Arrêts officiels (OFT)', data:'arrets', groupe:'Réseaux',
+      build: function (d) {
+        // gares, trams, bateaux : toujours ; arrêts de bus (très nombreux) : à partir du zoom 14
+        var def = COUCHES.arrets, g = L.layerGroup(), bus = L.layerGroup();
+        d.features.forEach(function (f) {
+          var c = f.properties.classe || '', ll = [f.geometry.coordinates[1], f.geometry.coordinates[0]];
+          var t = /Train|crémaillère/.test(c) ? 'train' : /Tram/.test(c) ? 'tram' : /Bateau|Funiculaire/.test(c) ? 'bateau' : 'bus';
+          L.circleMarker(ll, { pane:'tp', radius:{train:6, tram:4.5, bateau:4.5, bus:3}[t], color:'#fff', weight:1, fillColor:MODES[t], fillOpacity:1 })
+            .bindTooltip(esc(f.properties.name) + '<br><span class="petit">' + esc(c) + '</span>').addTo(t === 'bus' ? bus : g);
+        });
+        def.majZoom = function () {
+          if (!def.layer || !map.hasLayer(def.layer)) { return; }
+          if (map.getZoom() >= 14) { g.addLayer(bus); } else { g.removeLayer(bus); }
+        };
+        map.on('zoomend', def.majZoom);
+        return g; },
+      legende: function () { return '<h3>Arrêts (bus : zoom 14 et plus)</h3>' + [['train','Gare'],['tram','Arrêt de tram'],['bus','Arrêt de bus']].map(function (a) {
+        return '<div class="ligne"><span class="pastille rond" style="background:' + MODES[a[0]] + '"></span>' + a[1] + '</div>'; }).join(''); } };
+    COUCHES.routes = { label:'Grandes routes (OSM)', data:'routes', groupe:'Réseaux',
+      build: function (d) { return L.geoJSON(d, { pane:'fond', interactive:false,
+        style: function (f) { var r = ROUTES[f.properties.classe] || ROUTES.secondaire; return { color:r[0], weight:r[1], opacity:.8 }; } }); },
+      legende: function () { return '<h3>Routes</h3>' + Object.keys(ROUTES).map(function (k) { return '<div class="ligne"><span class="pastille trait" style="background:' + ROUTES[k][0] + ';height:' + Math.round(ROUTES[k][1]) + 'px"></span>' + ROUTES[k][2] + '</div>'; }).join(''); } };
+    COUCHES.poi = { label:'Commerces et services (OSM)', data:'poi', groupe:'Services', groupes:{},
+      build: function (d) {
+        var def = COUCHES.poi, racine = L.layerGroup();
+        d.categories.forEach(function (c) {
+          var g = L.layerGroup(); def.groupes[c.id] = { layer:g, actif:true, label:c.label };
+          racine.addLayer(g);
+        });
+        d.points.forEach(function (p) {
+          var cat = d.categories[p[2]];
+          L.circleMarker([p[1], p[0]], { pane:'poi', radius:4, weight:1, color:'#fff', fillColor:POI_COUL[cat.id], fillOpacity:.95 })
+            .bindTooltip(esc(p[3] || cat.label) + '<br><span class="petit">' + esc(cat.label) + '</span>').addTo(def.groupes[cat.id].layer);
+        });
+        return racine; },
+      legende: function () {
+        var g = COUCHES.poi.groupes;
+        return '<h3>Commerces et services (cocher pour filtrer)</h3>' + Object.keys(g).map(function (id) {
+          return '<label class="ligne"><input type="checkbox" data-poi="' + id + '"' + (g[id].actif ? ' checked' : '') + '><span class="pastille rond" style="background:' + POI_COUL[id] + '"></span>' + esc(g[id].label) + '</label>'; }).join(''); } };
+    COUCHES.campus = { label:'Campus universitaires', data:'campus', groupe:'Fond',
+      build: function (d) { return L.geoJSON(d, { pane:'fond',
+        style: { color:'#c97a1a', weight:1.5, fillColor:'#f6d5a8', fillOpacity:.35 },
+        onEachFeature: function (f, l) { if (f.properties.name) { l.bindTooltip(esc(f.properties.name)); } } }); },
+      legende: function () { return '<div class="ligne"><span class="pastille" style="background:#f6d5a8;border-color:#c97a1a"></span>Campus (ETH, UZH…)</div>'; } };
+    COUCHES.eau = { label:'Lac et rivières', data:'eau', groupe:'Fond',
+      build: function (d) { var g = L.layerGroup();
+        L.geoJSON(d.surfaces, { pane:'eau', interactive:false, style:{ color:'#8fb8d6', weight:1, fillColor:'#bcd8ec', fillOpacity:.9 } }).addTo(g);
+        L.geoJSON(d.lignes, { pane:'eau', interactive:false, style:{ color:'#8fb8d6', weight:1.6 } }).addTo(g);
+        return g; },
+      legende: function () { return '<div class="ligne"><span class="pastille" style="background:#bcd8ec;border-color:#8fb8d6"></span>Lac et rivières</div>'; } };
+    COUCHES.kreise = { label:'Arrondissements (Kreise)', data:'kreise', groupe:'Fond',
+      build: function (d) {
+        var g = L.layerGroup();
+        L.geoJSON(d, { pane:'fond', interactive:false, style:{ color:'#6b6b6b', weight:1.2, fillOpacity:0, dashArray:'6 4' } }).addTo(g);
+        d.features.forEach(function (f) { var b = L.geoJSON(f).getBounds().getCenter();
+          L.marker(b, { interactive:false, icon:L.divIcon({ className:'', html:'', iconSize:[0,0] }), pane:'fond' })
+            .bindTooltip(esc(f.properties.bezeichnung), { permanent:true, direction:'center', className:'lbl lbl-kreis' }).addTo(g); });
+        return g; },
+      legende: function () { return '<div class="ligne"><span class="pastille" style="border:2px dashed #6b6b6b;background:#fff"></span>Limite de Kreis</div>'; } };
+    COUCHES.quartiers = { label:'Quartiers statistiques', data:'quartiers', groupe:'Fond',
+      build: function (d) { return L.geoJSON(d, { pane:'fond',
+        style:{ color:'#9aa4ab', weight:1, fillOpacity:0, dashArray:'3 4' },
+        onEachFeature: function (f, l) { l.bindTooltip(esc(f.properties.qname), { sticky:true }); } }); },
+      legende: function () { return ''; } };
+    COUCHES.lieux = { label:'Lieux clés (ETH, Housing Office)', data:'lieux', groupe:'Repères',
+      build: function (d) { var g = L.layerGroup();
+        d.features.forEach(function (f) { var c = f.geometry.coordinates;
+          L.marker([c[1], c[0]], { pane:'lieux', icon:L.divIcon({ className:'', html:'<div style="color:#0d47a1;font-size:24px;line-height:24px;text-shadow:0 0 3px #fff,0 0 3px #fff">★</div>', iconSize:[24,24], iconAnchor:[12,12] }) })
+            .bindTooltip(esc(nomCourt(f.properties.nom)), { permanent:true, direction: /Housing/.test(f.properties.nom) ? 'left' : /Zentrum/.test(f.properties.nom) ? 'bottom' : 'right',
+              offset: /Housing/.test(f.properties.nom) ? [-10,0] : /Zentrum/.test(f.properties.nom) ? [0,10] : [10,0], className:'lbl lbl-lieu' })
+            .bindPopup('<h3>' + esc(nomCourt(f.properties.nom)) + '</h3><div class="petit">' + esc(f.properties.adresse) + '</div>').addTo(g); });
+        return g; },
+      legende: function () { return '<div class="ligne"><span class="pastille" style="background:none;border:0;color:#0d47a1;font-size:17px;line-height:14px">★</span>Lieu clé</div>'; } };
+    COUCHES.residences = { label:'Résidences WOKO', data:'residences', groupe:'Repères',
+      build: function (d) { var g = L.layerGroup();
+        d.features.forEach(function (f) { var p = f.properties, c = f.geometry.coordinates;
+          var m = L.circleMarker([c[1], c[0]], { pane:'res', radius:10, weight:2.5, color:'#fff', fillColor:couleurResidence(p.eth_hongg_tp_min), fillOpacity:1 });
+          var gauche = /Sonneggstrasse|Meierwiesen/.test(p.nom), haut = /Culmann/.test(p.nom);
+          m.bindTooltip('<b>' + esc(p.nom) + '</b><br>' + min(p.eth_hongg_tp_min) + ' en TP',
+            { permanent:true, direction: gauche ? 'left' : haut ? 'top' : 'right', offset: gauche ? [-12,0] : haut ? [0,-12] : [12,0], className:'lbl' });
+          m.bindPopup(popupResidence(p), { maxWidth:320, maxHeight: Math.round(window.innerHeight * .6), autoPanPaddingTopLeft:[16,110], autoPanPaddingBottomRight:[16,70] });
+          m.on('popupopen', function () { selectionMarche(p.nom); });
+          m.on('popupclose', function () { selectionMarche(null); });
+          marqueurs[p.nom] = m; m.addTo(g); });
+        return g; },
+      legende: function () { return '<h3>Résidences : trajet TP vers Hönggerberg</h3>' + [['#1a9850','30 min ou moins'],['#f28e2b','31 à 45 min'],['#d73027','plus de 45 min']].map(function (a) {
+        return '<div class="ligne"><span class="pastille rond" style="background:' + a[0] + '"></span>' + a[1] + '</div>'; }).join(''); } };
+  }
+
+  function styleMarche(f) {
+    var sel = !focusMarche || f.properties.nom === focusMarche;
+    return { color:'#fff', weight:.6, opacity:sel ? .8 : 0, fillColor:MARCHE[f.properties.classe], fillOpacity:sel ? .55 : 0 };
+  }
+  function selectionMarche(nom) {
+    focusMarche = nom;
+    var def = COUCHES.iso_marche;
+    if (def && def.layer) { def.layer.eachLayer(function (l) { l.setStyle(styleMarche(l.feature)); }); }
+  }
+  function legendeBandes(titre, palette) {
+    return '<h3>' + titre + '</h3>' + Object.keys(palette).map(function (k) {
+      return '<div class="ligne"><span class="pastille" style="background:' + palette[k] + '"></span>' + k.replace('-', ' à ') + '</div>'; }).join('');
+  }
+
+  /* ---------- Thèmes ---------- */
+  var THEMES = {
+    tp:       { label:'Trajet en TP',   couches:['iso_tp','residences','lieux','campus'] },
+    velo:     { label:'Trajet à vélo',  couches:['iso_velo','residences','lieux','campus'] },
+    desserte: { label:'Desserte TP',    couches:['troncons','arrets','residences','lieux'] },
+    marche:   { label:'À pied',         couches:['iso_marche','residences','lieux'] },
+    services: { label:'Commerces',      couches:['poi','iso_marche','residences','lieux'] }
+  };
+  var themeActuel = null;
+  var visibles = {};
+
+  function afficher(id, on) {
+    var def = COUCHES[id];
+    if (!def) { return Promise.resolve(); }
+    if (!on) { visibles[id] = false; if (def.layer) { map.removeLayer(def.layer); } majCases(); majLegende(); return Promise.resolve(); }
+    visibles[id] = true; majCases();
+    $('#chargement').style.display = 'block';
+    return charger(def.data).then(function (d) {
+      if (!def.layer) { def.layer = def.build(d); }
+      if (visibles[id]) { def.layer.addTo(map); if (def.majZoom) { def.majZoom(); } }
+      majLegende();
+    }).catch(function (e) { visibles[id] = false; majCases(); message(e.message + '. Vérifier la connexion ou le dossier data/.'); })
+      .then(function () { $('#chargement').style.display = 'none'; });
+  }
+  function choisirTheme(id, avecHash) {
+    var th = THEMES[id]; if (!th) { return; }
+    themeActuel = id;
+    document.querySelectorAll('#themes button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.theme === id)); });
+    var cibles = {}; th.couches.forEach(function (c) { cibles[c] = true; });
+    var gardees = { lieux:1, residences:1, campus: cibles.campus ? 1 : 0 };
+    Object.keys(COUCHES).forEach(function (c) { if (!cibles[c] && !(visibles[c] && /^(eau|kreise|quartiers|routes)$/.test(c))) { if (visibles[c]) { afficher(c, false); } } });
+    th.couches.forEach(function (c) { if (!visibles[c]) { afficher(c, true); } });
+    if (avecHash !== false) { history.replaceState(null, '', '#' + id); }
+    majLegende();
+  }
+
+  /* ---------- Interface : thèmes, couches, fonds, légende, liste ---------- */
+  function construireInterface(residences) {
+    var nav = $('#themes');
+    Object.keys(THEMES).forEach(function (id) {
+      var b = document.createElement('button'); b.type = 'button'; b.textContent = THEMES[id].label; b.dataset.theme = id; b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function () { choisirTheme(id); }); nav.appendChild(b);
+    });
+
+    var groupes = {};
+    Object.keys(COUCHES).forEach(function (id) { var g = COUCHES[id].groupe; (groupes[g] = groupes[g] || []).push(id); });
+    var zone = $('#couches');
+    ['Analyses','Réseaux','Services','Fond','Repères'].forEach(function (g) {
+      if (!groupes[g]) { return; }
+      var h = document.createElement('div'); h.className = 'petit'; h.style.cssText = 'color:#5b6770;font-size:12px;margin:6px 0 2px'; h.textContent = g; zone.appendChild(h);
+      groupes[g].forEach(function (id) {
+        var l = document.createElement('label'); l.className = 'couche';
+        l.innerHTML = '<input type="checkbox" data-couche="' + id + '"><span>' + esc(COUCHES[id].label) + '</span>';
+        l.firstChild.addEventListener('change', function (e) { afficher(id, e.target.checked); });
+        zone.appendChild(l);
+      });
+    });
+
+    var f = $('#fonds');
+    Object.keys(FONDS).forEach(function (id) {
+      var l = document.createElement('label');
+      l.innerHTML = '<input type="radio" name="fond" value="' + id + '"' + (id === fondActif ? ' checked' : '') + '><span>' + esc(FONDS[id].label) + '</span>';
+      l.firstChild.addEventListener('change', function () { map.removeLayer(FONDS[fondActif].couche); fondActif = id; FONDS[id].couche.addTo(map); FONDS[id].couche.bringToBack(); });
+      f.appendChild(l);
+    });
+    var lr = document.createElement('label'); lr.innerHTML = '<input type="checkbox" id="cr"><span>Relief ombré (swisstopo)</span>';
+    lr.firstChild.addEventListener('change', function (e) { if (e.target.checked) { relief.addTo(map); } else { map.removeLayer(relief); } });
+    f.appendChild(lr);
+
+    $('#nbres').textContent = '(' + residences.features.length + ')';
+    var liste = $('#liste');
+    residences.features.slice().sort(function (a, b) { return (a.properties.eth_hongg_tp_min || 999) - (b.properties.eth_hongg_tp_min || 999); }).forEach(function (f) {
+      var p = f.properties, li = document.createElement('li'), b = document.createElement('button');
+      b.type = 'button'; b.style.setProperty('--c', couleurResidence(p.eth_hongg_tp_min));
+      b.innerHTML = '<span class="nom">' + esc(p.nom) + '</span><span class="detail">' + min(p.eth_hongg_tp_min) + ' TP · ' + min(p.eth_hongg_velo_min) + ' vélo · ' + loyer(p).replace(' par mois', '') + '</span>';
+      b.addEventListener('click', function () { allerA(p.nom); });
+      li.appendChild(b); liste.appendChild(li);
+    });
+  }
+  function majCases() {
+    document.querySelectorAll('[data-couche]').forEach(function (c) { c.checked = !!visibles[c.dataset.couche]; });
+  }
+  function majLegende() {
+    var ordre = ['residences','iso_tp','iso_velo','iso_marche','troncons','arrets','routes','poi','campus','eau','kreise','lieux'];
+    var html = ordre.filter(function (id) { return visibles[id] && COUCHES[id] && COUCHES[id].legende && (COUCHES[id].layer || id === 'residences'); })
+      .map(function (id) { return COUCHES[id].legende(); }).join('');
+    var z = $('#legende'); z.innerHTML = html || '<span class="petit">Aucune couche affichée.</span>';
+    z.querySelectorAll('[data-poi]').forEach(function (c) {
+      c.addEventListener('change', function () { var g = COUCHES.poi.groupes[c.dataset.poi]; g.actif = c.checked;
+        if (c.checked) { COUCHES.poi.layer.addLayer(g.layer); } else { COUCHES.poi.layer.removeLayer(g.layer); } });
+    });
+  }
+  function allerA(nom) {
+    var m = marqueurs[nom]; if (!m) { return; }
+    if (EST_MOBILE.matches) { basculer(false); }
+    map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 15), { duration: .6 });
+    map.once('moveend', function () { m.openPopup(); });
+  }
+
+  /* ---------- Panneau mobile ---------- */
+  function basculer(ouvrir) {
+    document.body.classList.toggle('ouvert', ouvrir);
+    $('#poignee').setAttribute('aria-expanded', String(ouvrir));
+  }
+  $('#poignee').addEventListener('click', function () { basculer(!document.body.classList.contains('ouvert')); });
+
+  /* ---------- Cadrage, minimap, étiquettes selon le zoom ---------- */
+  var bornes = null;
+  function recentrer() {
+    if (!bornes) { return; }
+    var mob = EST_MOBILE.matches;
+    map.fitBounds(bornes, { paddingTopLeft: [24, mob ? 96 : 110], paddingBottomRight: [mob ? 24 : 380, mob ? 70 : 30] });
+  }
+  $('#recentrer').addEventListener('click', recentrer);
+  function classesZoom() {
+    var z = map.getZoom();
+    document.body.classList.toggle('zoom-bas', z < 12);
+    document.body.classList.toggle('zoom-moyen', z < 13);
+    document.body.classList.toggle('zoom-haut', z >= 15);
+  }
+  map.on('zoomend', classesZoom);
+
+  function minimap() {
+    if (window.matchMedia('(max-width: 1000px)').matches) { return; }
+    var mm = L.map('minimap', { zoomControl:false, attributionControl:false, dragging:false, scrollWheelZoom:false, doubleClickZoom:false, boxZoom:false, keyboard:false, touchZoom:false });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:12 }).addTo(mm);
+    var rect = null;
+    function maj() { var b = map.getBounds(); if (rect) { rect.setBounds(b); } else { rect = L.rectangle(b, { color:'#e63030', weight:2, fillOpacity:.1 }).addTo(mm); }
+      mm.setView(b.getCenter(), Math.max(8, Math.min(11, map.getZoom() - 4)), { animate:false }); }
+    map.on('moveend zoomend', maj); maj();
+    mm.on('click', function (e) { map.panTo(e.latlng); });
+    mm.getContainer().style.cursor = 'pointer';
+  }
+
+  /* ---------- Démarrage ---------- */
+  definirCouches();
+  Promise.all([charger('residences'), charger('lieux'), charger('meta')]).then(function (r) {
+    var residences = r[0], meta = r[2];
+    bornes = L.latLngBounds(meta.bornes);
+    L.geoJSON(r[1]).getBounds && bornes.extend(L.geoJSON(r[1]).getBounds());
+    bornes = bornes.pad(.08);
+    construireInterface(residences);
+    recentrer(); classesZoom(); minimap();
+    var depart = (location.hash || '').replace('#', '');
+    choisirTheme(THEMES[depart] ? depart : 'tp', false);
+    if (EST_MOBILE.matches) { basculer(false); }
+  }).catch(function (e) { message('Données introuvables (' + e.message + ').'); });
+  window.addEventListener('hashchange', function () { var h = (location.hash || '').replace('#', ''); if (THEMES[h] && h !== themeActuel) { choisirTheme(h, false); } });
+  map.on('click', function () { selectionMarche(null); });
+})();
+</script>
+</body>
+</html>
